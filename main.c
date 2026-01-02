@@ -18,13 +18,13 @@ static int getenv_int(const char *);
 \===========*/
 
 typedef struct db_connection_s {
-	PGconn* conn;
+	PGconn *conn;
 	int in_use;
-	struct db_connection_s* next;
+	struct db_connection_s *next;
 } db_connection_t;
 
 typedef struct db_pool_s {
-	db_connection_t* connections;
+	db_connection_t *connections;
 	int size;
 	int active_count;
 	uv_mutex_t mutex;
@@ -44,18 +44,18 @@ typedef struct http_response_s {
 	size_t body_len;
 } http_response_t;
 
-typedef void (*route_handler_t)(http_request_t* req, http_response_t* res);
+typedef void (*route_handler_t)(http_request_t *, http_response_t *);
 
 typedef struct route_node_s {
 	char method[16];
 	char path[256];
 	route_handler_t handler;
-	struct route_node_s* next;
+	struct route_node_s *next;
 } route_node_t;
 
 typedef struct client_s {
 	uv_tcp_t handle;
-	uv_stream_t* server;
+	uv_stream_t *server;
 	llhttp_settings_t parser_settings;
 	llhttp_t parser;
 	http_request_t request;
@@ -64,7 +64,7 @@ typedef struct client_s {
 
 typedef struct work_request_s {
 	uv_work_t work;
-	client_t* client;
+	client_t *client;
 	http_request_t request;
 	http_response_t response;
 } work_request_t;
@@ -73,9 +73,9 @@ typedef struct work_request_s {
 | Globals |
 \========*/
 
-static route_node_t* router_root = NULL;
-static uv_loop_t* loop;
-static db_pool_t* db_pool = NULL;
+static route_node_t *router_root = NULL;
+static uv_loop_t *loop;
+static db_pool_t *db_pool = NULL;
 
 /*=============================\
 | Database pool implementation |
@@ -316,7 +316,7 @@ handle_list_users(http_request_t *req, http_response_t *res) {
 	if (PQresultStatus(result) == PGRES_TUPLES_OK) {
 		int rows = PQntuples(result);
 		for (int i = 0; i < rows; i++) {
-			cJSON* user = cJSON_CreateObject();
+			cJSON *user = cJSON_CreateObject();
 			cJSON_AddNumberToObject(user, "id",
 						atoi(PQgetvalue(result, i, 0)));
 			cJSON_AddStringToObject(user, "name",
@@ -477,7 +477,7 @@ on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
 		if (err == HPE_OK ||
 		    client->parser.finish == HTTP_FINISH_SAFE) {
 			// Request complete, queue work
-			work_request_t* work =
+			work_request_t *work =
 			  (work_request_t *)malloc(sizeof(work_request_t));
 			work->work.data = work;
 			work->client = client;
@@ -511,7 +511,7 @@ on_connect(uv_stream_t *server, int status) {
 	if (status < 0)
 		return;
 
-	client_t* client = (client_t *)malloc(sizeof(client_t));
+	client_t *client = (client_t *)malloc(sizeof(client_t));
 	uv_tcp_init(loop, &client->handle);
 	client->handle.data = client;
 	client->server = server;
