@@ -548,7 +548,7 @@ main() {
 	// Initialize database pool
 	int db_pool_size = getenv_int("DB_POOL_SIZE");
 	if (db_pool_size == 0)
-	db_pool_size = 4;
+		db_pool_size = 4;
 
 	char *db_conninfo = getenv("DB_CONNINFO");
 	if (!db_conninfo)
