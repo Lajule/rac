@@ -1,0 +1,26 @@
+version: '3.5'
+
+services:
+  rac:
+    build:
+      context: .
+      dockerfile: ./dockerfile
+    environment:
+      DB_CONNINFO: "host=postgres dbname=postgres user=postgres password=postgres"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    container_name: postgres_container
+    image: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
