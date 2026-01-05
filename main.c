@@ -34,6 +34,7 @@ typedef struct db_pool_s {
 typedef struct http_request_s {
 	char method[16];
 	char path[256];
+	char auth_token[256];
 	char body[4096];
 	size_t body_len;
 } http_request_t;
@@ -60,6 +61,8 @@ typedef struct client_s {
 	llhttp_t parser;
 	http_request_t request;
 	char read_buffer[8192];
+	char current_header_field[256];
+	char current_header_value[256];
 } client_t;
 
 typedef struct work_request_s {
@@ -229,6 +232,34 @@ on_url(llhttp_t *parser, const char *at, size_t length) {
 }
 
 int
+on_header_field(llhttp_t *parser, const char *at, size_t length) {
+	client_t *client = (client_t*)parser->data;
+	size_t copy_len = length < sizeof(client->current_header_field) - 1 ?
+	  length : sizeof(client->current_header_field) - 1;
+	strncpy(client->current_header_field, at, copy_len);
+	client->current_header_field[copy_len] = '\0';
+	return 0;
+}
+
+int
+on_header_value(llhttp_t *parser, const char *at, size_t length) {
+	client_t *client = (client_t*)parser->data;
+	size_t copy_len = length < sizeof(client->current_header_value) - 1 ?
+	  length : sizeof(client->current_header_value) - 1;
+	strncpy(client->current_header_value, at, copy_len);
+	client->current_header_value[copy_len] = '\0';
+
+	// Check if this is the X-Auth-Token header
+	if (strcasecmp(client->current_header_field, "X-Auth-Token") == 0) {
+		strncpy(client->request.auth_token,
+			client->current_header_value,
+			sizeof(client->request.auth_token) - 1);
+	}
+
+    return 0;
+}
+
+int
 on_body(llhttp_t *parser, const char *at, size_t length) {
 	client_t *client = (client_t *)parser->data;
 	size_t copy_len = length < sizeof(client->request.body) - 1 ?
@@ -244,6 +275,46 @@ on_message_complete(llhttp_t *parser) {
 	snprintf(client->request.method, sizeof(client->request.method), "%s",
 		 llhttp_method_name(llhttp_get_method(parser)));
 	return 0;
+}
+
+/*============\
+| Middlewares |
+\============*/
+
+int
+verify_auth_token(http_request_t *req, http_response_t *res) {
+	PGconn *conn = db_pool_acquire(db_pool);
+
+	const char *params[1] = { req->auth_token };
+	PGresult *result =
+	  PQexecParams(conn,
+		       "SELECT id, is_active FROM auth_tokens WHERE key = $1",
+		       1, NULL, params, NULL, NULL, 0);
+
+	int is_valid = 0;
+	if (PQresultStatus(result) == PGRES_TUPLES_OK && PQntuples(result) > 0) {
+		const char *is_active = PQgetvalue(result, 0, 1);
+		is_valid = strcmp(is_active, "t") == 0;
+	}
+
+	PQclear(result);
+	db_pool_release(db_pool, conn);
+
+	if (!is_valid) {
+		cJSON *json = cJSON_CreateObject();
+		cJSON_AddStringToObject(json, "error", "Unauthorized");
+		cJSON_AddStringToObject(json, "message", "Invalid or missing API key");
+
+		char *json_str = cJSON_Print(json);
+		strncpy(res->body, json_str, sizeof(res->body) - 1);
+		res->body_len = strlen(json_str);
+		res->status_code = 401;
+
+		free(json_str);
+		cJSON_Delete(json);
+	}
+
+	return is_valid;
 }
 
 /*===============\
@@ -428,6 +499,10 @@ work_cb(uv_work_t *req) {
 
 	route_handler_t handler = router_match(work->request.method,
 					       work->request.path);
+
+	if (!verify_auth_token(&work->request, &work->response))
+		return;
+
 	if (handler)
 		handler(&work->request, &work->response);
 	else
@@ -521,6 +596,8 @@ on_connect(uv_stream_t *server, int status) {
 		llhttp_settings_init(&client->parser_settings);
 		client->parser_settings.on_message_begin = on_message_begin;
 		client->parser_settings.on_url = on_url;
+		client->parser_settings.on_header_field = on_header_field;
+		client->parser_settings.on_header_value = on_header_value;
 		client->parser_settings.on_body = on_body;
 		client->parser_settings.on_message_complete =
 		  on_message_complete;
