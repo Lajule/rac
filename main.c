@@ -9,8 +9,7 @@
 
 static int getenv_int(const char *);
 
-#define DB_CONNINFO \
-		"host=localhost dbname=postgres user=postgres password=postgres"
+#define DB_CONNINFO "host=localhost dbname=postgres user=postgres password=postgres"
 #define BACKLOG 128
 
 /*===========\
@@ -99,14 +98,12 @@ db_pool_create(const char *conninfo, int pool_size) {
 		PGconn *conn = PQconnectdb(conninfo);
 
 		if (PQstatus(conn) != CONNECTION_OK) {
-			fprintf(stderr, "Connection %d failed: %s\n", i,
-				PQerrorMessage(conn));
+			fprintf(stderr, "Connection %d failed: %s\n", i, PQerrorMessage(conn));
 			PQfinish(conn);
 			continue;
 		}
 
-		db_connection_t *db_conn =
-		  (db_connection_t *)malloc(sizeof(db_connection_t));
+		db_connection_t *db_conn = (db_connection_t *)malloc(sizeof(db_connection_t));
 		db_conn->conn = conn;
 		db_conn->in_use = 0;
 		db_conn->next = pool->connections;
@@ -114,8 +111,7 @@ db_pool_create(const char *conninfo, int pool_size) {
 		pool->active_count++;
 	}
 
-	printf("Database pool created with %d connections\n",
-	       pool->active_count);
+	printf("Database pool created with %d connections\n", pool->active_count);
 	return pool;
 }
 
@@ -196,8 +192,7 @@ router_match(const char *method, const char *path) {
 		if (strcmp(method, current->method) == 0) {
 			regex_t re;
 
-			if (regcomp(&re, current->path,
-				    REG_EXTENDED|REG_NOSUB) != 0)
+			if (regcomp(&re, current->path, REG_EXTENDED|REG_NOSUB) != 0)
 				return NULL;
 
 			if (regexec(&re, path, 0, NULL, 0) == 0)
@@ -224,8 +219,7 @@ on_message_begin(llhttp_t *parser) {
 int
 on_url(llhttp_t *parser, const char *at, size_t length) {
 	client_t *client = (client_t *)parser->data;
-	size_t copy_len = length < sizeof(client->request.path) - 1 ?
-	  length : sizeof(client->request.path) - 1;
+	size_t copy_len = length < sizeof(client->request.path) - 1 ? length : sizeof(client->request.path) - 1;
 	strncpy(client->request.path, at, copy_len);
 	client->request.path[copy_len] = '\0';
 	return 0;
@@ -234,8 +228,8 @@ on_url(llhttp_t *parser, const char *at, size_t length) {
 int
 on_header_field(llhttp_t *parser, const char *at, size_t length) {
 	client_t *client = (client_t*)parser->data;
-	size_t copy_len = length < sizeof(client->current_header_field) - 1 ?
-	  length : sizeof(client->current_header_field) - 1;
+	size_t copy_len = length < sizeof(client->current_header_field) - 1 ? length :
+	  sizeof(client->current_header_field) - 1;
 	strncpy(client->current_header_field, at, copy_len);
 	client->current_header_field[copy_len] = '\0';
 	return 0;
@@ -244,15 +238,14 @@ on_header_field(llhttp_t *parser, const char *at, size_t length) {
 int
 on_header_value(llhttp_t *parser, const char *at, size_t length) {
 	client_t *client = (client_t*)parser->data;
-	size_t copy_len = length < sizeof(client->current_header_value) - 1 ?
-	  length : sizeof(client->current_header_value) - 1;
+	size_t copy_len = length < sizeof(client->current_header_value) - 1 ? length :
+	  sizeof(client->current_header_value) - 1;
 	strncpy(client->current_header_value, at, copy_len);
 	client->current_header_value[copy_len] = '\0';
 
 	// Check if this is the X-Auth-Token header
 	if (strcasecmp(client->current_header_field, "X-Auth-Token") == 0) {
-		strncpy(client->request.auth_token,
-			client->current_header_value,
+		strncpy(client->request.auth_token, client->current_header_value,
 			sizeof(client->request.auth_token) - 1);
 	}
 
@@ -262,8 +255,7 @@ on_header_value(llhttp_t *parser, const char *at, size_t length) {
 int
 on_body(llhttp_t *parser, const char *at, size_t length) {
 	client_t *client = (client_t *)parser->data;
-	size_t copy_len = length < sizeof(client->request.body) - 1 ?
-	  length : sizeof(client->request.body) - 1;
+	size_t copy_len = length < sizeof(client->request.body) - 1 ? length : sizeof(client->request.body) - 1;
 	strncpy(client->request.body, at, copy_len);
 	client->request.body_len = copy_len;
 	return 0;
@@ -286,10 +278,8 @@ verify_auth_token(http_request_t *req, http_response_t *res) {
 	PGconn *conn = db_pool_acquire(db_pool);
 
 	const char *params[1] = { req->auth_token };
-	PGresult *result =
-	  PQexecParams(conn,
-		       "SELECT id, is_active FROM auth_tokens WHERE key = $1",
-		       1, NULL, params, NULL, NULL, 0);
+	PGresult *result = PQexecParams(conn, "SELECT id, is_active FROM auth_tokens WHERE key = $1", 1, NULL, params,
+					NULL, NULL, 0);
 
 	int is_valid = 0;
 	if (PQresultStatus(result) == PGRES_TUPLES_OK && PQntuples(result) > 0) {
@@ -347,19 +337,15 @@ handle_user_by_id(http_request_t *req, http_response_t *res) {
 	PGconn *conn = db_pool_acquire(db_pool);
 
 	const char *params[1] = {id_str};
-	PGresult *result =
-	  PQexecParams(conn,
-		       "SELECT id, name, email FROM users WHERE id = $1",
-		       1, NULL, params, NULL, NULL, 0);
+	PGresult *result = PQexecParams(conn, "SELECT id, name, email FROM users WHERE id = $1", 1, NULL, params, NULL,
+					NULL, 0);
 
 	cJSON *json = cJSON_CreateObject();
 
 	if (PQresultStatus(result) == PGRES_TUPLES_OK && PQntuples(result) > 0) {
-		cJSON_AddNumberToObject(json, "id",
-					atoi(PQgetvalue(result, 0, 0)));
+		cJSON_AddNumberToObject(json, "id", atoi(PQgetvalue(result, 0, 0)));
 		cJSON_AddStringToObject(json, "name", PQgetvalue(result, 0, 1));
-		cJSON_AddStringToObject(json, "email",
-					PQgetvalue(result, 0, 2));
+		cJSON_AddStringToObject(json, "email", PQgetvalue(result, 0, 2));
 		res->status_code = 200;
 	} else {
 		cJSON_AddStringToObject(json, "error", "User not found");
@@ -380,20 +366,16 @@ handle_user_by_id(http_request_t *req, http_response_t *res) {
 void
 handle_list_users(http_request_t *req, http_response_t *res) {
 	PGconn *conn = db_pool_acquire(db_pool);
-	PGresult *result = PQexec(conn,
-				  "SELECT id, name, email FROM users LIMIT 10");
+	PGresult *result = PQexec(conn, "SELECT id, name, email FROM users LIMIT 10");
 	cJSON *json = cJSON_CreateArray();
 
 	if (PQresultStatus(result) == PGRES_TUPLES_OK) {
 		int rows = PQntuples(result);
 		for (int i = 0; i < rows; i++) {
 			cJSON *user = cJSON_CreateObject();
-			cJSON_AddNumberToObject(user, "id",
-						atoi(PQgetvalue(result, i, 0)));
-			cJSON_AddStringToObject(user, "name",
-						PQgetvalue(result, i, 1));
-			cJSON_AddStringToObject(user, "email",
-						PQgetvalue(result, i, 2));
+			cJSON_AddNumberToObject(user, "id", atoi(PQgetvalue(result, i, 0)));
+			cJSON_AddStringToObject(user, "name", PQgetvalue(result, i, 1));
+			cJSON_AddStringToObject(user, "email", PQgetvalue(result, i, 2));
 			cJSON_AddItemToArray(json, user);
 		}
 		res->status_code = 200;
@@ -427,36 +409,26 @@ handle_create_user(http_request_t *req, http_response_t *res) {
 		if (name && email) {
 			PGconn *conn = db_pool_acquire(db_pool);
 
-			const char *params[2] = {name->valuestring,
-						 email->valuestring};
-			PGresult *result =
-			  PQexecParams(conn,
-				       "INSERT INTO users (name, email) "
-				       "VALUES ($1, $2) RETURNING id",
-				       2, NULL, params, NULL, NULL, 0);
+			const char *params[2] = {name->valuestring, email->valuestring};
+			PGresult *result = PQexecParams(conn,
+							"INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id",
+							2, NULL, params, NULL, NULL, 0);
 
 			if (PQresultStatus(result) == PGRES_TUPLES_OK) {
-				cJSON_AddStringToObject(response, "status",
-							"created");
-				cJSON_AddNumberToObject(response, "id",
-							atoi(PQgetvalue(result,
-									0, 0)));
-				cJSON_AddStringToObject(response, "name",
-							name->valuestring);
-				cJSON_AddStringToObject(response, "email",
-							email->valuestring);
+				cJSON_AddStringToObject(response, "status", "created");
+				cJSON_AddNumberToObject(response, "id", atoi(PQgetvalue(result, 0, 0)));
+				cJSON_AddStringToObject(response, "name", name->valuestring);
+				cJSON_AddStringToObject(response, "email", email->valuestring);
 				res->status_code = 201;
 			} else {
-				cJSON_AddStringToObject(response, "error",
-							PQerrorMessage(conn));
+				cJSON_AddStringToObject(response, "error", PQerrorMessage(conn));
 				res->status_code = 500;
 			}
 
 			PQclear(result);
 			db_pool_release(db_pool, conn);
 		} else {
-			cJSON_AddStringToObject(response, "error",
-						"Missing name or email");
+			cJSON_AddStringToObject(response, "error", "Missing name or email");
 			res->status_code = 400;
 		}
 
@@ -497,8 +469,7 @@ void
 work_cb(uv_work_t *req) {
 	work_request_t *work = (work_request_t *)req->data;
 
-	route_handler_t handler = router_match(work->request.method,
-					       work->request.path);
+	route_handler_t handler = router_match(work->request.method, work->request.path);
 
 	if (!verify_auth_token(&work->request, &work->response))
 		return;
@@ -546,25 +517,20 @@ on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
 	client_t *client = (client_t *)stream->data;
 
 	if (nread > 0) {
-		enum llhttp_errno err = llhttp_execute(&client->parser,
-						       buf->base, nread);
+		enum llhttp_errno err = llhttp_execute(&client->parser, buf->base, nread);
 
 		if (err == HPE_OK ||
 		    client->parser.finish == HTTP_FINISH_SAFE) {
 			// Request complete, queue work
-			work_request_t *work =
-			  (work_request_t *)malloc(sizeof(work_request_t));
+			work_request_t *work = (work_request_t *)malloc(sizeof(work_request_t));
 			work->work.data = work;
 			work->client = client;
-			memcpy(&work->request, &client->request,
-			       sizeof(http_request_t));
+			memcpy(&work->request, &client->request, sizeof(http_request_t));
 
-			uv_queue_work(loop, &work->work, work_cb,
-				      after_work_cb);
+			uv_queue_work(loop, &work->work, work_cb, after_work_cb);
 		} else if (err != HPE_OK) {
 			// Parser error
-			fprintf(stderr, "HTTP parse error: %s\n",
-				llhttp_errno_name(err));
+			fprintf(stderr, "HTTP parse error: %s\n", llhttp_errno_name(err));
 			uv_close((uv_handle_t *)stream, (uv_close_cb)free);
 		}
 	} else if (nread < 0) {
@@ -599,11 +565,9 @@ on_connect(uv_stream_t *server, int status) {
 		client->parser_settings.on_header_field = on_header_field;
 		client->parser_settings.on_header_value = on_header_value;
 		client->parser_settings.on_body = on_body;
-		client->parser_settings.on_message_complete =
-		  on_message_complete;
+		client->parser_settings.on_message_complete = on_message_complete;
 
-		llhttp_init(&client->parser, HTTP_REQUEST,
-			    &client->parser_settings);
+		llhttp_init(&client->parser, HTTP_REQUEST, &client->parser_settings);
 		client->parser.data = client;
 
 		uv_read_start((uv_stream_t*)&client->handle, alloc_buffer,
