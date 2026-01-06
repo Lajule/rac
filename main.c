@@ -656,7 +656,7 @@ main() {
 
 	uv_tcp_bind(&server, (const struct sockaddr *)&addr, 0);
 
-	int r = uv_listen((uv_stream_t *)&server, BACKLOG, on_connect);
+	int r = uv_listen((uv_stream_t *)&server, 512, on_connect);
 	if (r) {
 		fprintf(stderr, "Listen error: %s\n", uv_strerror(r));
 		return 1;

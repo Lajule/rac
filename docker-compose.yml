@@ -3,24 +3,47 @@ services:
     build:
       context: .
       dockerfile: ./dockerfile
+    env_file:
+      - .env
     environment:
-      DB_CONNINFO: "host=postgres dbname=postgres user=postgres password=postgres"
+      DB_POOL_SIZE: ${DB_POOL_SIZE}
+      DB_CONNINFO: ${DB_CONNINFO}
+      UV_THREADPOOL_SIZE: ${UV_THREADPOOL_SIZE}
+      PORT: ${PORT}
     ports:
       - "8080:8080"
+    networks:
+      - postgres_network
     depends_on:
       postgres:
         condition: service_healthy
 
   postgres:
-    container_name: postgres_container
-    image: postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+    image: postgres:17
+    container_name: postgres
     volumes:
-      - ./db.sql:/docker-entrypoint-initdb.d/db.sql
+      - postgresql_data:/var/lib/postgresql/data
+      - ./initdb.d:/docker-entrypoint-initdb.d
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    networks:
+      - postgres_network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+volumes:
+  postgresql_data:
+    driver: local
+
+networks:
+  postgres_network:
+    driver: bridge
