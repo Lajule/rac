@@ -16,9 +16,9 @@ FROM debian:trixie
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    libuv1-dev \
-    libllhttp-dev \
-    libpq-dev
+    libuv1 \
+    libllhttp9.2 \
+    libpq5
 
 COPY --from=builder /src/rac /app/rac
 
