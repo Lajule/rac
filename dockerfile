@@ -10,7 +10,7 @@ WORKDIR /src
 
 COPY . /src
 
-RUN gcc -Wall -o rac main.c cJSON.c -luv -lpq -lllhttp
+RUN gcc -Wall -O2 -o rac main.c cJSON.c -luv -lpq -lllhttp
 
 FROM debian:trixie
 
