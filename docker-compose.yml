@@ -6,10 +6,11 @@ services:
     env_file:
       - .env
     environment:
+      UV_THREADPOOL_SIZE: ${UV_THREADPOOL_SIZE}
       DB_POOL_SIZE: ${DB_POOL_SIZE}
       DB_CONNINFO: ${DB_CONNINFO}
-      UV_THREADPOOL_SIZE: ${UV_THREADPOOL_SIZE}
       PORT: ${PORT}
+      BACKLOG: ${BACKLOG}
     ports:
       - "8080:8080"
     networks:

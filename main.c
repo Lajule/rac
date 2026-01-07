@@ -1,16 +1,19 @@
 #include <llhttp.h>
 #include <postgresql/libpq-fe.h>
 #include <regex.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <uv.h>
 #include "cJSON.h"
 
-static int getenv_int(const char *);
-
+#define DB_POOL_SIZE 4
 #define DB_CONNINFO "host=localhost dbname=postgres user=postgres password=postgres"
+#define PORT 8080
 #define BACKLOG 128
+
+static int getenv_int(const char *);
 
 /*===========\
 | Structures |
@@ -18,13 +21,13 @@ static int getenv_int(const char *);
 
 typedef struct db_connection_s {
 	PGconn *conn;
-	int in_use;
+	bool in_use;
 	struct db_connection_s *next;
 } db_connection_t;
 
 typedef struct db_pool_s {
 	db_connection_t *connections;
-	int size;
+	size_t size;
 	int active_count;
 	uv_mutex_t mutex;
 	uv_cond_t cond;
@@ -75,16 +78,16 @@ typedef struct work_request_s {
 | Globals |
 \========*/
 
-static route_node_t *router_root = NULL;
+static route_node_t *router_root;
 static uv_loop_t *loop;
-static db_pool_t *db_pool = NULL;
+static db_pool_t *db_pool;
 
 /*=============================\
 | Database pool implementation |
 \=============================*/
 
 db_pool_t *
-db_pool_create(const char *conninfo, int pool_size) {
+db_pool_create(const char *conninfo, size_t pool_size) {
 	db_pool_t *pool = (db_pool_t *)malloc(sizeof(db_pool_t));
 	pool->size = pool_size;
 	pool->active_count = 0;
@@ -94,21 +97,21 @@ db_pool_create(const char *conninfo, int pool_size) {
 	uv_cond_init(&pool->cond);
 
 	// Create connections
-	for (int i = 0; i < pool_size; i++) {
+	for (size_t i = 0; i < pool_size; i++) {
 		PGconn *conn = PQconnectdb(conninfo);
 
 		if (PQstatus(conn) != CONNECTION_OK) {
-			fprintf(stderr, "Connection %d failed: %s\n", i, PQerrorMessage(conn));
+			fprintf(stderr, "Connection %ld failed: %s\n", i, PQerrorMessage(conn));
 			PQfinish(conn);
 			continue;
 		}
 
 		db_connection_t *db_conn = (db_connection_t *)malloc(sizeof(db_connection_t));
 		db_conn->conn = conn;
-		db_conn->in_use = 0;
+		db_conn->in_use = false;
 		db_conn->next = pool->connections;
 		pool->connections = db_conn;
-		pool->active_count++;
+		pool->active_count += 1;
 	}
 
 	printf("Database pool created with %d connections\n", pool->active_count);
@@ -119,11 +122,11 @@ PGconn *
 db_pool_acquire(db_pool_t *pool) {
 	uv_mutex_lock(&pool->mutex);
 
-	while (1) {
+	while (true) {
 		db_connection_t *current = pool->connections;
 		while (current) {
 			if (!current->in_use) {
-				current->in_use = 1;
+				current->in_use = true;
 				uv_mutex_unlock(&pool->mutex);
 				return current->conn;
 			}
@@ -143,7 +146,7 @@ db_pool_release(db_pool_t *pool, PGconn *conn) {
 	db_connection_t *current = pool->connections;
 	while (current) {
 		if (current->conn == conn) {
-			current->in_use = 0;
+			current->in_use = false;
 			uv_cond_signal(&pool->cond);
 			break;
 		}
@@ -271,7 +274,7 @@ on_message_complete(llhttp_t *parser) {
 | Middlewares |
 \============*/
 
-int
+bool
 verify_auth_token(http_request_t *req, http_response_t *res) {
 	PGconn *conn = db_pool_acquire(db_pool);
 
@@ -279,7 +282,7 @@ verify_auth_token(http_request_t *req, http_response_t *res) {
 	const char *params[1] = {req->auth_token};
 	PGresult *result = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
 
-	int is_valid = 0;
+	bool is_valid = false;
 	if (PQresultStatus(result) == PGRES_TUPLES_OK && PQntuples(result) > 0) {
 		const char *is_active = PQgetvalue(result, 0, 1);
 		is_valid = strcmp(is_active, "t") == 0;
@@ -363,11 +366,11 @@ handle_user_by_id(http_request_t *req, http_response_t *res) {
 
 void
 handle_list_users(http_request_t *req, http_response_t *res) {
-	int page = 0;
-	sscanf(req->path, "/api/users?page=%d", &page);
+	size_t page = 0;
+	sscanf(req->path, "/api/users?page=%ld", &page);
 
 	char offset[16];
-	int printf_len = snprintf(offset, sizeof(offset) - 1, "%d", page * 100);
+	int printf_len = snprintf(offset, sizeof(offset) - 1, "%ld", page * 100);
 	offset[printf_len] = '\0';
 
 	PGconn *conn = db_pool_acquire(db_pool);
@@ -591,12 +594,13 @@ on_connect(uv_stream_t *server, int status) {
 
 int
 main() {
+	// Initialize event loop
 	loop = uv_default_loop();
 
 	// Initialize database pool
 	int db_pool_size = getenv_int("DB_POOL_SIZE");
 	if (db_pool_size == 0)
-		db_pool_size = 4;
+		db_pool_size = DB_POOL_SIZE;
 
 	char *db_conninfo = getenv("DB_CONNINFO");
 	if (!db_conninfo)
@@ -609,6 +613,7 @@ main() {
 	}
 
 	// Setup routes
+	router_root = NULL;
 	router_add("GET", "/api/hello$", handle_hello);
 	router_add("GET", "/api/users(\\?.*)?$", handle_list_users);
 	router_add("GET", "/api/users/[0-9]+$", handle_user_by_id);
@@ -620,14 +625,18 @@ main() {
 
 	int port = getenv_int("PORT");
 	if (port == 0)
-		port = 8080;
+		port = PORT;
 
 	struct sockaddr_in addr;
 	uv_ip4_addr("0.0.0.0", port, &addr);
 
 	uv_tcp_bind(&server, (const struct sockaddr *)&addr, 0);
 
-	int r = uv_listen((uv_stream_t *)&server, 512, on_connect);
+	int backlog = getenv_int("BACKLOG");
+	if (backlog == 0)
+		backlog = BACKLOG;
+
+	int r = uv_listen((uv_stream_t *)&server, backlog, on_connect);
 	if (r) {
 		fprintf(stderr, "Listen error: %s\n", uv_strerror(r));
 		return 1;
