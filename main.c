@@ -238,18 +238,16 @@ on_header_field(llhttp_t *parser, const char *at, size_t length) {
 int
 on_header_value(llhttp_t *parser, const char *at, size_t length) {
 	client_t *client = (client_t*)parser->data;
-	size_t copy_len = length < sizeof(client->current_header_value) - 1 ? length :
-	  sizeof(client->current_header_value) - 1;
+	size_t copy_len =
+	  length < sizeof(client->current_header_value) - 1 ? length : sizeof(client->current_header_value) - 1;
 	strncpy(client->current_header_value, at, copy_len);
 	client->current_header_value[copy_len] = '\0';
 
 	// Check if this is the X-Auth-Token header
-	if (strcasecmp(client->current_header_field, "X-Auth-Token") == 0) {
-		strncpy(client->request.auth_token, client->current_header_value,
-			sizeof(client->request.auth_token) - 1);
-	}
+	if (strcasecmp(client->current_header_field, "X-Auth-Token") == 0)
+		strcpy(client->request.auth_token, client->current_header_value);
 
-    return 0;
+	return 0;
 }
 
 int
@@ -264,8 +262,8 @@ on_body(llhttp_t *parser, const char *at, size_t length) {
 int
 on_message_complete(llhttp_t *parser) {
 	client_t *client = (client_t *)parser->data;
-	snprintf(client->request.method, sizeof(client->request.method), "%s",
-		 llhttp_method_name(llhttp_get_method(parser)));
+	const char *method = llhttp_method_name(llhttp_get_method(parser));
+	snprintf(client->request.method, sizeof(client->request.method), "%s", method);
 	return 0;
 }
 
@@ -277,9 +275,9 @@ int
 verify_auth_token(http_request_t *req, http_response_t *res) {
 	PGconn *conn = db_pool_acquire(db_pool);
 
+	const char *query = "SELECT id, is_active FROM auth_tokens WHERE key = $1";
 	const char *params[1] = { req->auth_token };
-	PGresult *result = PQexecParams(conn, "SELECT id, is_active FROM auth_tokens WHERE key = $1", 1, NULL, params,
-					NULL, NULL, 0);
+	PGresult *result = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
 
 	int is_valid = 0;
 	if (PQresultStatus(result) == PGRES_TUPLES_OK && PQntuples(result) > 0) {
@@ -336,9 +334,9 @@ handle_user_by_id(http_request_t *req, http_response_t *res) {
 
 	PGconn *conn = db_pool_acquire(db_pool);
 
+	const char *query = "SELECT id, name, email FROM users WHERE id = $1";
 	const char *params[1] = {id_str};
-	PGresult *result = PQexecParams(conn, "SELECT id, name, email FROM users WHERE id = $1", 1, NULL, params, NULL,
-					NULL, 0);
+	PGresult *result = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
 
 	cJSON *json = cJSON_CreateObject();
 
@@ -365,8 +363,18 @@ handle_user_by_id(http_request_t *req, http_response_t *res) {
 
 void
 handle_list_users(http_request_t *req, http_response_t *res) {
+	int page = 0;
+	sscanf(req->path, "/api/users?page=%d", &page);
+
+	char offset[16];
+	sprintf(offset, "%d", page * 100);
+
 	PGconn *conn = db_pool_acquire(db_pool);
-	PGresult *result = PQexec(conn, "SELECT id, name, email FROM users LIMIT 10");
+
+	const char *query = "SELECT id, name, email FROM users LIMIT 100 OFFSET $1";
+	const char *params[1] = {offset};
+	PGresult *result = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
+
 	cJSON *json = cJSON_CreateArray();
 
 	if (PQresultStatus(result) == PGRES_TUPLES_OK) {
@@ -409,10 +417,9 @@ handle_create_user(http_request_t *req, http_response_t *res) {
 		if (name && email) {
 			PGconn *conn = db_pool_acquire(db_pool);
 
+			const char *query = "INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id";
 			const char *params[2] = {name->valuestring, email->valuestring};
-			PGresult *result = PQexecParams(conn,
-							"INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id",
-							2, NULL, params, NULL, NULL, 0);
+			PGresult *result = PQexecParams(conn, query, 2, NULL, params, NULL, NULL, 0);
 
 			if (PQresultStatus(result) == PGRES_TUPLES_OK) {
 				cJSON_AddStringToObject(response, "status", "created");
@@ -570,8 +577,7 @@ on_connect(uv_stream_t *server, int status) {
 		llhttp_init(&client->parser, HTTP_REQUEST, &client->parser_settings);
 		client->parser.data = client;
 
-		uv_read_start((uv_stream_t*)&client->handle, alloc_buffer,
-			      on_read);
+		uv_read_start((uv_stream_t*)&client->handle, alloc_buffer, on_read);
 	} else {
 		uv_close((uv_handle_t*)&client->handle, (uv_close_cb)free);
 	}
@@ -603,7 +609,7 @@ main() {
 
 	// Setup routes
 	router_add("GET", "/api/hello$", handle_hello);
-	router_add("GET", "/api/users$", handle_list_users);
+	router_add("GET", "/api/users(\\?.*)?$", handle_list_users);
 	router_add("GET", "/api/users/[0-9]+$", handle_user_by_id);
 	router_add("POST", "/api/users$", handle_create_user);
 
