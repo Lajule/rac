@@ -276,7 +276,7 @@ verify_auth_token(http_request_t *req, http_response_t *res) {
 	PGconn *conn = db_pool_acquire(db_pool);
 
 	const char *query = "SELECT id, is_active FROM auth_tokens WHERE key = $1";
-	const char *params[1] = { req->auth_token };
+	const char *params[1] = {req->auth_token};
 	PGresult *result = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
 
 	int is_valid = 0;
