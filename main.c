@@ -367,7 +367,8 @@ handle_list_users(http_request_t *req, http_response_t *res) {
 	sscanf(req->path, "/api/users?page=%d", &page);
 
 	char offset[16];
-	sprintf(offset, "%d", page * 100);
+	int printf_len = snprintf(offset, sizeof(offset) - 1, "%d", page * 100);
+	offset[printf_len] = '\0';
 
 	PGconn *conn = db_pool_acquire(db_pool);
 
