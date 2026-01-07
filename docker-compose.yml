@@ -23,7 +23,7 @@ services:
     container_name: postgres
     volumes:
       - postgresql_data:/var/lib/postgresql/data
-      - ./initdb.d:/docker-entrypoint-initdb.d
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     env_file:
       - .env
     environment:
