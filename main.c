@@ -544,9 +544,8 @@ on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
 			fprintf(stderr, "HTTP parse error: %s\n", llhttp_errno_name(err));
 			uv_close((uv_handle_t *)stream, (uv_close_cb)free);
 		}
-	} else if (nread < 0) {
+	} else if (nread < 0)
 		uv_close((uv_handle_t *)stream, (uv_close_cb)free);
-	}
 
 	if (buf->base)
 		free(buf->base);
@@ -582,9 +581,8 @@ on_connect(uv_stream_t *server, int status) {
 		client->parser.data = client;
 
 		uv_read_start((uv_stream_t*)&client->handle, alloc_buffer, on_read);
-	} else {
+	} else
 		uv_close((uv_handle_t*)&client->handle, (uv_close_cb)free);
-	}
 }
 
 
