@@ -114,7 +114,6 @@ db_pool_create(const char *conninfo, size_t pool_size) {
 		pool->active_count += 1;
 	}
 
-	printf("Database pool created with %d connections\n", pool->active_count);
 	return pool;
 }
 
@@ -641,7 +640,6 @@ main() {
 	}
 
 	printf("Server running on http://0.0.0.0:%d\n", port);
-	printf("Database pool size: %d\n", db_pool->active_count);
 
 	int result = uv_run(loop, UV_RUN_DEFAULT);
 
