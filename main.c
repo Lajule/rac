@@ -173,7 +173,7 @@ db_pool_destroy(db_pool_t *pool) {
 }
 
 /*======================\
-| router implementation |
+| Router implementation |
 \======================*/
 
 void
@@ -230,8 +230,8 @@ on_url(llhttp_t *parser, const char *at, size_t length) {
 int
 on_header_field(llhttp_t *parser, const char *at, size_t length) {
 	client_t *client = (client_t*)parser->data;
-	size_t copy_len = length < sizeof(client->current_header_field) - 1 ? length :
-	  sizeof(client->current_header_field) - 1;
+	size_t copy_len =
+	  length < sizeof(client->current_header_field) - 1 ? length : sizeof(client->current_header_field) - 1;
 	strncpy(client->current_header_field, at, copy_len);
 	client->current_header_field[copy_len] = '\0';
 	return 0;
@@ -529,8 +529,7 @@ on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
 	if (nread > 0) {
 		enum llhttp_errno err = llhttp_execute(&client->parser, buf->base, nread);
 
-		if (err == HPE_OK ||
-		    client->parser.finish == HTTP_FINISH_SAFE) {
+		if (err == HPE_OK || client->parser.finish == HTTP_FINISH_SAFE) {
 			// Request complete, queue work
 			work_request_t *work = (work_request_t *)malloc(sizeof(work_request_t));
 			work->work.data = work;
