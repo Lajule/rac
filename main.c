@@ -374,38 +374,79 @@ handle_list_users(http_request_t *req, http_response_t *res) {
 
 	PGconn *conn = db_pool_acquire(db_pool);
 
+	// Begin transaction
+	PGresult *begin_result = PQexec(conn, "BEGIN");
+	if (PQresultStatus(begin_result) != PGRES_COMMAND_OK) {
+		cJSON *json = cJSON_CreateObject();
+		cJSON_AddStringToObject(json, "error", "Failed to start transaction");
+
+		char *json_str = cJSON_Print(json);
+		strncpy(res->body, json_str, sizeof(res->body) - 1);
+		res->body_len = strlen(json_str);
+		res->status_code = 500;
+
+		free(json_str);
+		cJSON_Delete(json);
+		PQclear(begin_result);
+		db_pool_release(db_pool, conn);
+		return;
+	}
+	PQclear(begin_result);
+
+	// Get total count
+	PGresult *count_result = PQexec(conn, "SELECT COUNT(*) FROM users");
+	int total_count = 0;
+
+	if (PQresultStatus(count_result) == PGRES_TUPLES_OK && PQntuples(count_result) > 0)
+		total_count = atoi(PQgetvalue(count_result, 0, 0));
+
+	PQclear(count_result);
+
+	// Get users list
 	const char *query = "SELECT id, name, email FROM users LIMIT 100 OFFSET $1";
 	const char *params[1] = {offset};
 	PGresult *result = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
 
-	cJSON *json = cJSON_CreateArray();
+	cJSON *response = cJSON_CreateObject();
+	cJSON *users_array = cJSON_CreateArray();
 
 	if (PQresultStatus(result) == PGRES_TUPLES_OK) {
 		int rows = PQntuples(result);
-		for (int i = 0; i < rows; i++) {
+		for (int i = 0; i < rows; ++i) {
 			cJSON *user = cJSON_CreateObject();
 			cJSON_AddNumberToObject(user, "id", atoi(PQgetvalue(result, i, 0)));
 			cJSON_AddStringToObject(user, "name", PQgetvalue(result, i, 1));
 			cJSON_AddStringToObject(user, "email", PQgetvalue(result, i, 2));
-			cJSON_AddItemToArray(json, user);
+			cJSON_AddItemToArray(users_array, user);
 		}
+
+		cJSON_AddItemToObject(response, "users", users_array);
+		cJSON_AddNumberToObject(response, "total", total_count);
+		cJSON_AddNumberToObject(response, "count", rows);
 		res->status_code = 200;
+
+		// Commit transaction
+		PGresult *commit_result = PQexec(conn, "COMMIT");
+		PQclear(commit_result);
 	} else {
-		cJSON_Delete(json);
-		json = cJSON_CreateObject();
-		cJSON_AddStringToObject(json, "error", PQerrorMessage(conn));
+		cJSON_Delete(users_array);
+		cJSON_AddStringToObject(response, "error", PQerrorMessage(conn));
 		res->status_code = 500;
+
+		// Rollback on error
+		PGresult *rollback_result = PQexec(conn, "ROLLBACK");
+		PQclear(rollback_result);
 	}
 
 	PQclear(result);
 	db_pool_release(db_pool, conn);
 
-	char *json_str = cJSON_Print(json);
+	char *json_str = cJSON_Print(response);
 	strncpy(res->body, json_str, sizeof(res->body) - 1);
 	res->body_len = strlen(json_str);
 
 	free(json_str);
-	cJSON_Delete(json);
+	cJSON_Delete(response);
 }
 
 void
