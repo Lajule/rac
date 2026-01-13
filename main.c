@@ -1,10 +1,12 @@
 #include <llhttp.h>
 #include <postgresql/libpq-fe.h>
 #include <regex.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <uv.h>
 #include "cJSON.h"
 
@@ -18,6 +20,13 @@ static int getenv_int(const char *);
 /*===========\
 | Structures |
 \===========*/
+
+typedef enum log_level_e {
+	DEBUG,
+	INFO,
+	WARN,
+	ERROR
+} log_level_t;
 
 typedef struct db_connection_s {
 	PGconn *conn;
@@ -78,9 +87,37 @@ typedef struct work_request_s {
 | Globals |
 \========*/
 
+static log_level_t log_level;
 static route_node_t *router_root;
 static uv_loop_t *loop;
 static db_pool_t *db_pool;
+
+/*=======\
+| Logger |
+\=======*/
+
+void
+log_message(log_level_t level, const char *format, ...) {
+	if (level < log_level)
+	  return;
+
+	const char *level_str[] = {"DEBUG", "INFO", "WARN", "ERROR"};
+
+	time_t now;
+	time(&now);
+	char timestamp[26];
+	strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
+
+	printf("%s [%s] ", level_str[level], timestamp);
+
+	va_list args;
+	va_start(args, format);
+	vprintf(format, args);
+	va_end(args);
+
+	printf("\n");
+	fflush(stdout);
+}
 
 /*=============================\
 | Database pool implementation |
@@ -101,7 +138,7 @@ db_pool_create(const char *conninfo, size_t pool_size) {
 		PGconn *conn = PQconnectdb(conninfo);
 
 		if (PQstatus(conn) != CONNECTION_OK) {
-			fprintf(stderr, "Connection %ld failed: %s\n", i, PQerrorMessage(conn));
+			log_message(ERROR, "Connection %ld failed: %s", i, PQerrorMessage(conn));
 			PQfinish(conn);
 			continue;
 		}
@@ -184,6 +221,7 @@ router_add(const char *method, const char *path, route_handler_t handler) {
 	node->handler = handler;
 	node->next = router_root;
 	router_root = node;
+	log_message(INFO, "%s %s", method, path);
 }
 
 route_handler_t
@@ -580,7 +618,7 @@ on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
 			uv_queue_work(loop, &work->work, work_cb, after_work_cb);
 		} else if (err != HPE_OK) {
 			// Parser error
-			fprintf(stderr, "HTTP parse error: %s\n", llhttp_errno_name(err));
+			log_message(ERROR, "HTTP parse error: %s", llhttp_errno_name(err));
 			uv_close((uv_handle_t *)stream, (uv_close_cb)free);
 		}
 	} else if (nread < 0)
@@ -634,6 +672,9 @@ main() {
 	// Initialize event loop
 	loop = uv_default_loop();
 
+	// Initialize logger
+	log_level = getenv_int("LEVEL");
+
 	// Initialize database pool
 	int db_pool_size = getenv_int("DB_POOL_SIZE");
 	if (db_pool_size == 0)
@@ -645,7 +686,7 @@ main() {
 
 	db_pool = db_pool_create(db_conninfo, db_pool_size);
 	if (!db_pool || db_pool->active_count == 0) {
-		fprintf(stderr, "Failed to create database pool\n");
+		log_message(ERROR, "Failed to create database pool");
 		return 1;
 	}
 
@@ -675,11 +716,11 @@ main() {
 
 	int r = uv_listen((uv_stream_t *)&server, backlog, on_connect);
 	if (r) {
-		fprintf(stderr, "Listen error: %s\n", uv_strerror(r));
+		log_message(ERROR, "Listen error: %s", uv_strerror(r));
 		return 1;
 	}
 
-	printf("Server running on http://0.0.0.0:%d\n", port);
+	log_message(INFO, "Server running on http://0.0.0.0:%d", port);
 
 	int result = uv_run(loop, UV_RUN_DEFAULT);
 
