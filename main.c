@@ -1,4 +1,5 @@
 #include <llhttp.h>
+#include <math.h>
 #include <postgresql/libpq-fe.h>
 #include <regex.h>
 #include <stdarg.h>
@@ -105,10 +106,17 @@ log_message(log_level_t level, const char *format, ...) {
 
 	time_t now;
 	time(&now);
-	char timestamp[26];
-	strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
 
-	printf("%s [%s] ", level_str[level], timestamp);
+	char timestamp[26];
+	strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%S", localtime(&now));
+
+
+	struct timespec tv;
+	clock_gettime(CLOCK_REALTIME, &tv);
+
+	double fractional_seconds = round(tv.tv_nsec / 1e6);
+
+	printf("%s.%dZ [%s] - ", timestamp, (int)fractional_seconds, level_str[level]);
 
 	va_list args;
 	va_start(args, format);
@@ -478,6 +486,8 @@ handle_list_users(http_request_t *req, http_response_t *res) {
 
 	PQclear(result);
 	db_pool_release(db_pool, conn);
+
+	log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
 
 	char *json_str = cJSON_Print(response);
 	strncpy(res->body, json_str, sizeof(res->body) - 1);
