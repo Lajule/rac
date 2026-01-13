@@ -1,5 +1,4 @@
 #include <llhttp.h>
-#include <math.h>
 #include <postgresql/libpq-fe.h>
 #include <regex.h>
 #include <stdarg.h>
@@ -7,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
 #include <time.h>
 #include <uv.h>
 #include "cJSON.h"
@@ -100,23 +100,20 @@ static db_pool_t *db_pool;
 void
 log_message(log_level_t level, const char *format, ...) {
 	if (level < log_level)
-	  return;
+		return;
 
-	const char *level_str[] = {"DEBUG", "INFO", "WARN", "ERROR"};
+	// Get current time with milliseconds
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
 
-	time_t now;
-	time(&now);
+    	time_t now = tv.tv_sec;
+    	int millisec = tv.tv_usec / 1000;
 
-	char timestamp[26];
+	char timestamp[32];
 	strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%S", localtime(&now));
 
-
-	struct timespec tv;
-	clock_gettime(CLOCK_REALTIME, &tv);
-
-	double fractional_seconds = round(tv.tv_nsec / 1e6);
-
-	printf("%s.%dZ [%s] - ", timestamp, (int)fractional_seconds, level_str[level]);
+	const char *level_str[] = {"DEBUG", "INFO", "WARN", "ERROR"};
+	printf("%s.%dZ [%s] - ", timestamp, millisec, level_str[level]);
 
 	va_list args;
 	va_start(args, format);

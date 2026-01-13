@@ -8,7 +8,7 @@ all: build
 
 .PHONY: build
 build: $(OBJS)
-	$(CC) $(CFLAGS) -o $(BINARY) $(OBJS) -lm -luv -lpq -lllhttp
+	$(CC) $(CFLAGS) -o $(BINARY) $(OBJS) -luv -lpq -lllhttp
 
 .PHONY: clean
 clean:
