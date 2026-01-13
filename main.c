@@ -361,6 +361,8 @@ handle_hello(http_request_t *req, http_response_t *res) {
 	cJSON_AddStringToObject(json, "method", req->method);
 	cJSON_AddStringToObject(json, "path", req->path);
 
+	log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
+	
 	char *json_str = cJSON_Print(json);
 	strncpy(res->body, json_str, sizeof(res->body) - 1);
 	res->body_len = strlen(json_str);
@@ -397,6 +399,8 @@ handle_user_by_id(http_request_t *req, http_response_t *res) {
 
 	PQclear(result);
 	db_pool_release(db_pool, conn);
+
+	log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
 
 	char *json_str = cJSON_Print(json);
 	strncpy(res->body, json_str, sizeof(res->body) - 1);
@@ -534,6 +538,8 @@ handle_create_user(http_request_t *req, http_response_t *res) {
 		res->status_code = 400;
 	}
 
+	log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
+	
 	char *json_str = cJSON_Print(response);
 	strncpy(res->body, json_str, sizeof(res->body) - 1);
 	res->body_len = strlen(json_str);
