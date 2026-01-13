@@ -106,8 +106,8 @@ log_message(log_level_t level, const char *format, ...) {
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
 
-    	time_t now = tv.tv_sec;
-    	int millisec = tv.tv_usec / 1000;
+	time_t now = tv.tv_sec;
+	int millisec = tv.tv_usec / 1000;
 
 	char timestamp[32];
 	strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%S", localtime(&now));
