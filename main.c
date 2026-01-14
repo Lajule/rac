@@ -18,9 +18,7 @@
 
 static int getenv_int(const char *);
 
-/*===========\
-| Structures |
-\===========*/
+/* Structures */
 
 typedef enum log_level_e {
 	DEBUG,
@@ -84,25 +82,21 @@ typedef struct work_request_s {
 	http_response_t response;
 } work_request_t;
 
-/*========\
-| Globals |
-\========*/
+/* Globals */
 
 static log_level_t log_level;
 static route_node_t *router_root;
 static uv_loop_t *loop;
 static db_pool_t *db_pool;
 
-/*=======\
-| Logger |
-\=======*/
+/* Logger */
 
 void
 log_message(log_level_t level, const char *format, ...) {
 	if (level < log_level)
 		return;
 
-	// Get current time with milliseconds
+	/* Get current time with milliseconds */
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
 
@@ -124,9 +118,7 @@ log_message(log_level_t level, const char *format, ...) {
 	fflush(stdout);
 }
 
-/*=============================\
-| Database pool implementation |
-\=============================*/
+/* Database pool implementation */
 
 db_pool_t *
 db_pool_create(const char *conninfo, size_t pool_size) {
@@ -138,7 +130,7 @@ db_pool_create(const char *conninfo, size_t pool_size) {
 	uv_mutex_init(&pool->mutex);
 	uv_cond_init(&pool->cond);
 
-	// Create connections
+	/* Create connections */
 	for (size_t i = 0; i < pool_size; i++) {
 		PGconn *conn = PQconnectdb(conninfo);
 
@@ -175,7 +167,7 @@ db_pool_acquire(db_pool_t *pool) {
 			current = current->next;
 		}
 
-		// Wait for available connection
+		/* Wait for available connection */
 		uv_cond_wait(&pool->cond, &pool->mutex);
 	}
 }
@@ -214,9 +206,7 @@ db_pool_destroy(db_pool_t *pool) {
 	free(pool);
 }
 
-/*======================\
-| Router implementation |
-\======================*/
+/* Router implementation */
 
 void
 router_add(const char *method, const char *path, route_handler_t handler) {
@@ -250,9 +240,7 @@ router_match(const char *method, const char *path) {
 	return NULL;
 }
 
-/*======================\
-| HTTP parser callbacks |
-\======================*/
+/* HTTP parser callbacks */
 
 int
 on_message_begin(llhttp_t *parser) {
@@ -288,7 +276,7 @@ on_header_value(llhttp_t *parser, const char *at, size_t length) {
 	strncpy(client->current_header_value, at, copy_len);
 	client->current_header_value[copy_len] = '\0';
 
-	// Check if this is the X-Auth-Token header
+	/* Check if this is the X-Auth-Token header */
 	if (strcasecmp(client->current_header_field, "X-Auth-Token") == 0)
 		strcpy(client->request.auth_token, client->current_header_value);
 
@@ -312,9 +300,7 @@ on_message_complete(llhttp_t *parser) {
 	return 0;
 }
 
-/*============\
-| Middlewares |
-\============*/
+/* Middlewares */
 
 bool
 verify_auth_token(http_request_t *req, http_response_t *res) {
@@ -350,9 +336,7 @@ verify_auth_token(http_request_t *req, http_response_t *res) {
 	return is_valid;
 }
 
-/*===============\
-| Route handlers |
-\===============*/
+/* Route handlers */
 
 void
 handle_hello(http_request_t *req, http_response_t *res) {
@@ -374,7 +358,7 @@ handle_hello(http_request_t *req, http_response_t *res) {
 
 void
 handle_user_by_id(http_request_t *req, http_response_t *res) {
-	// Extract user ID from path
+	/* Extract user ID from path */
 	char *id_str = strrchr(req->path, '/');
 	if (id_str)
 		id_str += 1;
@@ -416,12 +400,12 @@ handle_list_users(http_request_t *req, http_response_t *res) {
 	sscanf(req->path, "/api/users?page=%ld", &page);
 
 	char offset[16];
-	int printf_len = snprintf(offset, sizeof(offset) - 1, "%ld", page * 100);
+	int printf_len = snprintf(offset, sizeof(offset) - 1, "%ld", page * 10);
 	offset[printf_len] = '\0';
 
 	PGconn *conn = db_pool_acquire(db_pool);
 
-	// Begin transaction
+	/* Begin transaction */
 	PGresult *begin_result = PQexec(conn, "BEGIN");
 	if (PQresultStatus(begin_result) != PGRES_COMMAND_OK) {
 		cJSON *json = cJSON_CreateObject();
@@ -440,7 +424,7 @@ handle_list_users(http_request_t *req, http_response_t *res) {
 	}
 	PQclear(begin_result);
 
-	// Get total count
+	/* Get total count */
 	PGresult *count_result = PQexec(conn, "SELECT COUNT(*) FROM users");
 	int total_count = 0;
 
@@ -449,8 +433,8 @@ handle_list_users(http_request_t *req, http_response_t *res) {
 
 	PQclear(count_result);
 
-	// Get users list
-	const char *query = "SELECT id, name, email FROM users LIMIT 100 OFFSET $1";
+	/* Get users list */
+	const char *query = "SELECT id, name, email FROM users LIMIT 10 OFFSET $1";
 	const char *params[1] = {offset};
 	PGresult *result = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
 
@@ -472,7 +456,7 @@ handle_list_users(http_request_t *req, http_response_t *res) {
 		cJSON_AddNumberToObject(response, "count", rows);
 		res->status_code = 200;
 
-		// Commit transaction
+		/* Commit transaction */
 		PGresult *commit_result = PQexec(conn, "COMMIT");
 		PQclear(commit_result);
 	} else {
@@ -480,7 +464,7 @@ handle_list_users(http_request_t *req, http_response_t *res) {
 		cJSON_AddStringToObject(response, "error", PQerrorMessage(conn));
 		res->status_code = 500;
 
-		// Rollback on error
+		/* Rollback on error */
 		PGresult *rollback_result = PQexec(conn, "ROLLBACK");
 		PQclear(rollback_result);
 	}
@@ -565,9 +549,7 @@ handle_not_found(http_request_t *req, http_response_t *res) {
 	cJSON_Delete(json);
 }
 
-/*===================\
-| Thread pool worker |
-\===================*/
+/* Thread pool worker */
 
 void
 work_cb(uv_work_t *req) {
@@ -612,9 +594,7 @@ after_work_cb(uv_work_t *req, int status) {
 	free(work);
 }
 
-/*===========================\
-| Server connection handling |
-\===========================*/
+/* Server connection handling */
 
 void
 on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
@@ -624,7 +604,7 @@ on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
 		enum llhttp_errno err = llhttp_execute(&client->parser, buf->base, nread);
 
 		if (err == HPE_OK || client->parser.finish == HTTP_FINISH_SAFE) {
-			// Request complete, queue work
+			/* Request complete, queue work */
 			work_request_t *work = (work_request_t *)malloc(sizeof(work_request_t));
 			work->work.data = work;
 			work->client = client;
@@ -632,7 +612,7 @@ on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
 
 			uv_queue_work(loop, &work->work, work_cb, after_work_cb);
 		} else if (err != HPE_OK) {
-			// Parser error
+			/* Parser error */
 			log_message(ERROR, "HTTP parse error: %s", llhttp_errno_name(err));
 			uv_close((uv_handle_t *)stream, (uv_close_cb)free);
 		}
@@ -660,7 +640,7 @@ on_connect(uv_stream_t *server, int status) {
 	client->server = server;
 
 	if (uv_accept(server, (uv_stream_t *)&client->handle) == 0) {
-		// Initialize HTTP parser
+		/* Initialize HTTP parser */
 		llhttp_settings_init(&client->parser_settings);
 		client->parser_settings.on_message_begin = on_message_begin;
 		client->parser_settings.on_url = on_url;
@@ -677,20 +657,17 @@ on_connect(uv_stream_t *server, int status) {
 		uv_close((uv_handle_t*)&client->handle, (uv_close_cb)free);
 }
 
-
-/*=====\
-| Main |
-\=====*/
+/* Main */
 
 int
 main() {
-	// Initialize event loop
+	/* Initialize event loop */
 	loop = uv_default_loop();
 
-	// Initialize logger
+	/* Initialize logger */
 	log_level = getenv_int("LEVEL");
 
-	// Initialize database pool
+	/* Initialize database pool */
 	int db_pool_size = getenv_int("DB_POOL_SIZE");
 	if (db_pool_size == 0)
 		db_pool_size = DB_POOL_SIZE;
@@ -705,14 +682,14 @@ main() {
 		return 1;
 	}
 
-	// Setup routes
+	/* Setup routes */
 	router_root = NULL;
 	router_add("GET", "/api/hello$", handle_hello);
 	router_add("GET", "/api/users(\\?.*)?$", handle_list_users);
 	router_add("GET", "/api/users/[0-9]+$", handle_user_by_id);
 	router_add("POST", "/api/users$", handle_create_user);
 
-	// Setup server
+	/* Setup server */
 	uv_tcp_t server;
 	uv_tcp_init(loop, &server);
 
@@ -739,7 +716,7 @@ main() {
 
 	int result = uv_run(loop, UV_RUN_DEFAULT);
 
-	// Cleanup
+	/* Cleanup */
 	db_pool_destroy(db_pool);
 
 	return result;
