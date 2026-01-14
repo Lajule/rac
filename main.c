@@ -362,7 +362,7 @@ handle_hello(http_request_t *req, http_response_t *res) {
 	cJSON_AddStringToObject(json, "path", req->path);
 
 	log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
-	
+
 	char *json_str = cJSON_Print(json);
 	strncpy(res->body, json_str, sizeof(res->body) - 1);
 	res->body_len = strlen(json_str);
@@ -539,7 +539,7 @@ handle_create_user(http_request_t *req, http_response_t *res) {
 	}
 
 	log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
-	
+
 	char *json_str = cJSON_Print(response);
 	strncpy(res->body, json_str, sizeof(res->body) - 1);
 	res->body_len = strlen(json_str);
@@ -553,11 +553,13 @@ handle_not_found(http_request_t *req, http_response_t *res) {
 	cJSON *json = cJSON_CreateObject();
 	cJSON_AddStringToObject(json, "error", "Route not found");
 	cJSON_AddStringToObject(json, "path", req->path);
+	res->status_code = 404;
+
+	log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
 
 	char *json_str = cJSON_Print(json);
 	strncpy(res->body, json_str, sizeof(res->body) - 1);
 	res->body_len = strlen(json_str);
-	res->status_code = 404;
 
 	free(json_str);
 	cJSON_Delete(json);
