@@ -25,6 +25,17 @@ sudo apt-get install -y \
     build-essential
 ```
 
+## Environment
+
+```bash
+UV_THREADPOOL_SIZE=4
+LEVEL=1
+DB_POOL_SIZE=4
+DB_CONNINFO="host=postgres dbname=mydb user=mydb password=p@ssw0rd"
+PORT=8080
+BACKLOG=128
+```
+
 ## 🙏 Acknowledgments
 
 - [libuv](https://libuv.org/) - Cross-platform async I/O
