@@ -16,8 +16,6 @@
 #define PORT 8080
 #define BACKLOG 128
 
-static int getenv_int(const char *);
-
 /* Structures */
 
 typedef enum log_level_e {
@@ -66,7 +64,6 @@ typedef struct route_node_s {
 
 typedef struct client_s {
 	uv_tcp_t handle;
-	uv_stream_t *server;
 	llhttp_settings_t parser_settings;
 	llhttp_t parser;
 	http_request_t request;
@@ -85,9 +82,15 @@ typedef struct work_request_s {
 /* Globals */
 
 static log_level_t log_level;
+static db_pool_t *db_pool;
 static route_node_t *router_root;
 static uv_loop_t *loop;
-static db_pool_t *db_pool;
+static uv_tcp_t server;
+static uv_signal_t sigint;
+static uv_signal_t sigterm;
+
+static int getenv_int(const char *);
+static void to_response(http_response_t *, cJSON *);
 
 /* Logger */
 
@@ -230,8 +233,12 @@ router_match(const char *method, const char *path) {
 			if (regcomp(&re, current->path, REG_EXTENDED|REG_NOSUB) != 0)
 				return NULL;
 
-			if (regexec(&re, path, 0, NULL, 0) == 0)
+			if (regexec(&re, path, 0, NULL, 0) == 0) {
+				regfree(&re);
 				return current->handler;
+			}
+
+			regfree(&re);
 		}
 
 		current = current->next;
@@ -323,13 +330,9 @@ verify_auth_token(http_request_t *req, http_response_t *res) {
 		cJSON *json = cJSON_CreateObject();
 		cJSON_AddStringToObject(json, "error", "Unauthorized");
 		cJSON_AddStringToObject(json, "message", "Invalid or missing API key");
-
-		char *json_str = cJSON_Print(json);
-		strncpy(res->body, json_str, sizeof(res->body) - 1);
-		res->body_len = strlen(json_str);
 		res->status_code = 401;
 
-		free(json_str);
+		to_response(res, json);
 		cJSON_Delete(json);
 	}
 
@@ -344,15 +347,11 @@ handle_hello(http_request_t *req, http_response_t *res) {
 	cJSON_AddStringToObject(json, "message", "Hello from C REST API!");
 	cJSON_AddStringToObject(json, "method", req->method);
 	cJSON_AddStringToObject(json, "path", req->path);
+	res->status_code = 200;
 
 	log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
 
-	char *json_str = cJSON_Print(json);
-	strncpy(res->body, json_str, sizeof(res->body) - 1);
-	res->body_len = strlen(json_str);
-	res->status_code = 200;
-
-	free(json_str);
+	to_response(res, json);
 	cJSON_Delete(json);
 }
 
@@ -386,11 +385,7 @@ handle_user_by_id(http_request_t *req, http_response_t *res) {
 
 	log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
 
-	char *json_str = cJSON_Print(json);
-	strncpy(res->body, json_str, sizeof(res->body) - 1);
-	res->body_len = strlen(json_str);
-
-	free(json_str);
+	to_response(res, json);
 	cJSON_Delete(json);
 }
 
@@ -410,16 +405,15 @@ handle_list_users(http_request_t *req, http_response_t *res) {
 	if (PQresultStatus(begin_result) != PGRES_COMMAND_OK) {
 		cJSON *json = cJSON_CreateObject();
 		cJSON_AddStringToObject(json, "error", "Failed to start transaction");
-
-		char *json_str = cJSON_Print(json);
-		strncpy(res->body, json_str, sizeof(res->body) - 1);
-		res->body_len = strlen(json_str);
 		res->status_code = 500;
 
-		free(json_str);
-		cJSON_Delete(json);
 		PQclear(begin_result);
 		db_pool_release(db_pool, conn);
+
+		log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
+
+		to_response(res, json);
+		cJSON_Delete(json);
 		return;
 	}
 	PQclear(begin_result);
@@ -438,7 +432,7 @@ handle_list_users(http_request_t *req, http_response_t *res) {
 	const char *params[1] = {offset};
 	PGresult *result = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
 
-	cJSON *response = cJSON_CreateObject();
+	cJSON *json_response = cJSON_CreateObject();
 	cJSON *users_array = cJSON_CreateArray();
 
 	if (PQresultStatus(result) == PGRES_TUPLES_OK) {
@@ -451,9 +445,9 @@ handle_list_users(http_request_t *req, http_response_t *res) {
 			cJSON_AddItemToArray(users_array, user);
 		}
 
-		cJSON_AddItemToObject(response, "users", users_array);
-		cJSON_AddNumberToObject(response, "total", total_count);
-		cJSON_AddNumberToObject(response, "count", rows);
+		cJSON_AddItemToObject(json_response, "users", users_array);
+		cJSON_AddNumberToObject(json_response, "total", total_count);
+		cJSON_AddNumberToObject(json_response, "count", rows);
 		res->status_code = 200;
 
 		/* Commit transaction */
@@ -461,7 +455,7 @@ handle_list_users(http_request_t *req, http_response_t *res) {
 		PQclear(commit_result);
 	} else {
 		cJSON_Delete(users_array);
-		cJSON_AddStringToObject(response, "error", PQerrorMessage(conn));
+		cJSON_AddStringToObject(json_response, "error", PQerrorMessage(conn));
 		res->status_code = 500;
 
 		/* Rollback on error */
@@ -474,22 +468,18 @@ handle_list_users(http_request_t *req, http_response_t *res) {
 
 	log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
 
-	char *json_str = cJSON_Print(response);
-	strncpy(res->body, json_str, sizeof(res->body) - 1);
-	res->body_len = strlen(json_str);
-
-	free(json_str);
-	cJSON_Delete(response);
+	to_response(res, json_response);
+	cJSON_Delete(json_response);
 }
 
 void
 handle_create_user(http_request_t *req, http_response_t *res) {
-	cJSON *input = cJSON_Parse(req->body);
-	cJSON *response = cJSON_CreateObject();
+	cJSON *json_body = cJSON_Parse(req->body);
+	cJSON *json_response = cJSON_CreateObject();
 
-	if (input) {
-		cJSON *name = cJSON_GetObjectItem(input, "name");
-		cJSON *email = cJSON_GetObjectItem(input, "email");
+	if (json_body) {
+		cJSON *name = cJSON_GetObjectItem(json_body, "name");
+		cJSON *email = cJSON_GetObjectItem(json_body, "email");
 
 		if (name && email) {
 			PGconn *conn = db_pool_acquire(db_pool);
@@ -499,37 +489,32 @@ handle_create_user(http_request_t *req, http_response_t *res) {
 			PGresult *result = PQexecParams(conn, query, 2, NULL, params, NULL, NULL, 0);
 
 			if (PQresultStatus(result) == PGRES_TUPLES_OK) {
-				cJSON_AddStringToObject(response, "status", "created");
-				cJSON_AddNumberToObject(response, "id", atoi(PQgetvalue(result, 0, 0)));
-				cJSON_AddStringToObject(response, "name", name->valuestring);
-				cJSON_AddStringToObject(response, "email", email->valuestring);
+				cJSON_AddStringToObject(json_response, "status", "created");
+				cJSON_AddNumberToObject(json_response, "id", atoi(PQgetvalue(result, 0, 0)));
+				cJSON_AddStringToObject(json_response, "name", name->valuestring);
+				cJSON_AddStringToObject(json_response, "email", email->valuestring);
 				res->status_code = 201;
 			} else {
-				cJSON_AddStringToObject(response, "error", PQerrorMessage(conn));
+				cJSON_AddStringToObject(json_response, "error", PQerrorMessage(conn));
 				res->status_code = 500;
 			}
 
 			PQclear(result);
 			db_pool_release(db_pool, conn);
 		} else {
-			cJSON_AddStringToObject(response, "error", "Missing name or email");
+			cJSON_AddStringToObject(json_response, "error", "Missing name or email");
 			res->status_code = 400;
 		}
-
-		cJSON_Delete(input);
 	} else {
-		cJSON_AddStringToObject(response, "error", "Invalid JSON");
+		cJSON_AddStringToObject(json_response, "error", "Invalid JSON");
 		res->status_code = 400;
 	}
 
 	log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
 
-	char *json_str = cJSON_Print(response);
-	strncpy(res->body, json_str, sizeof(res->body) - 1);
-	res->body_len = strlen(json_str);
-
-	free(json_str);
-	cJSON_Delete(response);
+	to_response(res, json_response);
+	cJSON_Delete(json_response);
+	cJSON_Delete(json_body);
 }
 
 void
@@ -541,11 +526,7 @@ handle_not_found(http_request_t *req, http_response_t *res) {
 
 	log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
 
-	char *json_str = cJSON_Print(json);
-	strncpy(res->body, json_str, sizeof(res->body) - 1);
-	res->body_len = strlen(json_str);
-
-	free(json_str);
+	to_response(res, json);
 	cJSON_Delete(json);
 }
 
@@ -637,7 +618,6 @@ on_connect(uv_stream_t *server, int status) {
 	client_t *client = (client_t *)malloc(sizeof(client_t));
 	uv_tcp_init(loop, &client->handle);
 	client->handle.data = client;
-	client->server = server;
 
 	if (uv_accept(server, (uv_stream_t *)&client->handle) == 0) {
 		/* Initialize HTTP parser */
@@ -657,13 +637,20 @@ on_connect(uv_stream_t *server, int status) {
 		uv_close((uv_handle_t*)&client->handle, (uv_close_cb)free);
 }
 
+void
+on_signal(uv_signal_t *handle, int signum) {
+    log_message(INFO, "Received signal %d, shutting down gracefully...", signum);
+
+    uv_close((uv_handle_t*)&server, NULL);
+    uv_signal_stop(&sigint);
+    uv_signal_stop(&sigterm);
+    uv_stop(loop);
+}
+
 /* Main */
 
 int
 main() {
-	/* Initialize event loop */
-	loop = uv_default_loop();
-
 	/* Initialize logger */
 	log_level = getenv_int("LEVEL");
 
@@ -689,8 +676,16 @@ main() {
 	router_add("GET", "/api/users/[0-9]+$", handle_user_by_id);
 	router_add("POST", "/api/users$", handle_create_user);
 
+	/* Initialize event loop */
+	loop = uv_default_loop();
+
+	/* Setup signal handlers */
+	uv_signal_init(loop, &sigint);
+	uv_signal_start(&sigint, on_signal, SIGINT);
+	uv_signal_init(loop, &sigterm);
+	uv_signal_start(&sigterm, on_signal, SIGTERM);
+
 	/* Setup server */
-	uv_tcp_t server;
 	uv_tcp_init(loop, &server);
 
 	int port = getenv_int("PORT");
@@ -709,6 +704,7 @@ main() {
 	int r = uv_listen((uv_stream_t *)&server, backlog, on_connect);
 	if (r) {
 		log_message(ERROR, "Listen error: %s", uv_strerror(r));
+		db_pool_destroy(db_pool);
 		return 1;
 	}
 
@@ -716,8 +712,8 @@ main() {
 
 	int result = uv_run(loop, UV_RUN_DEFAULT);
 
-	/* Cleanup */
 	db_pool_destroy(db_pool);
+	uv_loop_close(loop);
 
 	return result;
 }
@@ -726,4 +722,12 @@ static int
 getenv_int(const char *name) {
 	const char *value = getenv(name);
 	return value ? atoi(value) : 0;
+}
+
+static void
+to_response(http_response_t *res, cJSON *json) {
+	char *json_str = cJSON_Print(json);
+	strncpy(res->body, json_str, sizeof(res->body) - 1);
+	res->body_len = strlen(json_str);
+	free(json_str);
 }
