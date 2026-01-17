@@ -90,7 +90,7 @@ static uv_signal_t sigint;
 static uv_signal_t sigterm;
 
 static int getenv_int(const char *);
-static void to_response(http_response_t *, cJSON *);
+static void copy_json_to_response(http_response_t *, cJSON *);
 
 /* Logger */
 
@@ -332,7 +332,7 @@ verify_auth_token(http_request_t *req, http_response_t *res) {
 		cJSON_AddStringToObject(json, "message", "Invalid or missing API key");
 		res->status_code = 401;
 
-		to_response(res, json);
+		copy_json_to_response(res, json);
 		cJSON_Delete(json);
 	}
 
@@ -351,7 +351,7 @@ handle_hello(http_request_t *req, http_response_t *res) {
 
 	log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
 
-	to_response(res, json);
+	copy_json_to_response(res, json);
 	cJSON_Delete(json);
 }
 
@@ -385,7 +385,7 @@ handle_user_by_id(http_request_t *req, http_response_t *res) {
 
 	log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
 
-	to_response(res, json);
+	copy_json_to_response(res, json);
 	cJSON_Delete(json);
 }
 
@@ -412,7 +412,7 @@ handle_list_users(http_request_t *req, http_response_t *res) {
 
 		log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
 
-		to_response(res, json);
+		copy_json_to_response(res, json);
 		cJSON_Delete(json);
 		return;
 	}
@@ -468,7 +468,7 @@ handle_list_users(http_request_t *req, http_response_t *res) {
 
 	log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
 
-	to_response(res, json_response);
+	copy_json_to_response(res, json_response);
 	cJSON_Delete(json_response);
 }
 
@@ -512,7 +512,7 @@ handle_create_user(http_request_t *req, http_response_t *res) {
 
 	log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
 
-	to_response(res, json_response);
+	copy_json_to_response(res, json_response);
 	cJSON_Delete(json_response);
 	cJSON_Delete(json_body);
 }
@@ -526,7 +526,7 @@ handle_not_found(http_request_t *req, http_response_t *res) {
 
 	log_message(DEBUG, "%s %s %d", req->method, req->path, res->status_code);
 
-	to_response(res, json);
+	copy_json_to_response(res, json);
 	cJSON_Delete(json);
 }
 
@@ -725,7 +725,7 @@ getenv_int(const char *name) {
 }
 
 static void
-to_response(http_response_t *res, cJSON *json) {
+copy_json_to_response(http_response_t *res, cJSON *json) {
 	char *json_str = cJSON_Print(json);
 	strncpy(res->body, json_str, sizeof(res->body) - 1);
 	res->body_len = strlen(json_str);
