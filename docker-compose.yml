@@ -7,6 +7,7 @@ services:
       - .env
     environment:
       UV_THREADPOOL_SIZE: ${UV_THREADPOOL_SIZE}
+      LEVEL: %{LEVEL}
       DB_POOL_SIZE: ${DB_POOL_SIZE}
       DB_CONNINFO: ${DB_CONNINFO}
       PORT: ${PORT}
