@@ -13,8 +13,8 @@
 
 #define DB_POOL_SIZE 4
 #define DB_CONNINFO "host=localhost dbname=postgres user=postgres password=postgres"
-#define PORT 8080
-#define BACKLOG 128
+#define HTTP_PORT 8080
+#define HTTP_BACKLOG 128
 
 /* Structures */
 
@@ -652,7 +652,7 @@ on_signal(uv_signal_t *handle, int signum) {
 int
 main() {
 	/* Initialize logger */
-	log_level = getenv_int("LEVEL");
+	log_level = getenv_int("LOG_LEVEL");
 
 	/* Initialize database pool */
 	int db_pool_size = getenv_int("DB_POOL_SIZE");
@@ -688,18 +688,18 @@ main() {
 	/* Setup server */
 	uv_tcp_init(loop, &server);
 
-	int port = getenv_int("PORT");
+	int port = getenv_int("HTTP_PORT");
 	if (port == 0)
-		port = PORT;
+		port = HTTP_PORT;
 
 	struct sockaddr_in addr;
 	uv_ip4_addr("0.0.0.0", port, &addr);
 
 	uv_tcp_bind(&server, (const struct sockaddr *)&addr, 0);
 
-	int backlog = getenv_int("BACKLOG");
+	int backlog = getenv_int("HTTP_BACKLOG");
 	if (backlog == 0)
-		backlog = BACKLOG;
+		backlog = HTTP_BACKLOG;
 
 	int r = uv_listen((uv_stream_t *)&server, backlog, on_connect);
 	if (r) {

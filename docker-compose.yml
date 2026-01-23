@@ -7,11 +7,11 @@ services:
       - .env
     environment:
       UV_THREADPOOL_SIZE: ${UV_THREADPOOL_SIZE}
-      LEVEL: %{LEVEL}
+      LOG_LEVEL: %{LOG_LEVEL}
       DB_POOL_SIZE: ${DB_POOL_SIZE}
       DB_CONNINFO: ${DB_CONNINFO}
-      PORT: ${PORT}
-      BACKLOG: ${BACKLOG}
+      HTTP_PORT: ${HTTP_PORT}
+      HTTP_BACKLOG: ${HTTP_BACKLOG}
     ports:
       - "8080:8080"
     networks:
